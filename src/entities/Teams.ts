@@ -29,7 +29,7 @@ class Committee {
 
 export const SABCommittee = new Committee(
   'Security Advisory Board',
-  'Responsable to overview the sensible operations of the DAO, with the power to halt operations initiated by the DAO Committee or the Community. They advise in the best course of action for technical operations involving the DAO\'s smart contracts.',
+  'Responsable for overviewing critical DAO operations, with the power to halt transactions initiated by the DAO Committee or the Community. They advise for the best course of action regarding technical operations involving the DAO\'s smart contracts.',
   5,
   [
     {
@@ -62,7 +62,7 @@ export const SABCommittee = new Committee(
 
 export const DAOCommittee = new Committee(
   'DAO Committee',
-  'Their principal responsibility is to enact binding proposals on-chain like listing Point of Interests, sending Grants, and any other operations involving the DAO\'s smart contracts.',
+  'Their principal responsibility is to enact binding proposals on-chain like listing Point of Interests, sending Grants, and any other operations involving the DAO\'s smart contracts or Treasury.',
   3,
   [
     {
@@ -85,7 +85,7 @@ export const DAOCommittee = new Committee(
 
 export const CurationCommittee = new Committee(
   'Wearable Curation Committee',
-  'Responsible for reviewing new wearable submissions ensuring they are glitch-free and compliant with the design guidelines. They also rise warnings about IP infringement and violent content.',
+  'Responsible for reviewing new wearable and emotes submissions ensuring they are glitch-free and compliant with the design and content guidelines. They also rise warnings about potential IP infringements and rules violations',
   15,
   [
     {
@@ -168,7 +168,7 @@ export const CurationCommittee = new Committee(
 
 export const RevocationCommittee = new Committee(
   'Revocation Committee',
-  'Responsible for reviewing cases raised by the community regarding Grants Program that raise concerns. After an assessment, they decide if a Grant has to be revoked or not. They also make recommendations for changes in the Grants Program when identifying improvements.',
+  'Responsible for reviewing cases raised by the community regarding concerning Grant projects. After an assessment, they decide if a Grant has to be revoked or not. They also make recommendations for changes in the Grants Program when identifying improvements.',
   4,
   [
     {
