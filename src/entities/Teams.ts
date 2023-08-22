@@ -1,13 +1,15 @@
-import { DCLMember } from "../interfaces/Members"
+import { DCLMember } from '../interfaces/Members'
 
-class Team {
+class Committee {
   private readonly name: string
   private readonly description: string
+  private readonly size: number
   private readonly members: DCLMember[]
 
-  constructor(name: string, description: string, members: DCLMember[]) {
+  constructor(name: string, description: string, size: number, members: DCLMember[]) {
     this.name = name
     this.description = description
+    this.size = size
     this.members = members
   }
 
@@ -15,6 +17,7 @@ class Team {
     return {
       name: this.name,
       description: this.description,
+      size: this.size,
       members: this.members
     }
   }
@@ -24,9 +27,10 @@ class Team {
   }
 }
 
-export const SABTeam = new Team(
+export const SABCommittee = new Committee(
   'Security Advisory Board',
-  'Responsable to overview the sensible operations of the DAO, with the power to halt operations initiated by the DAO Committee or the Community. They advise in the best course of action for technical operations involving the DAO\'s smart contracts.',
+  'Responsable for overviewing critical DAO operations, with the power to halt transactions initiated by the DAO Committee or the Community. They advise for the best course of action regarding technical operations involving the DAO\'s smart contracts.',
+  5,
   [
     {
       address: '0xbcac4dafb7e215f2f6cb3312af6d5e4f9d9e7eda',
@@ -41,7 +45,7 @@ export const SABTeam = new Team(
     {
       address: '0x48850327b81d0c924ad212891c7223c2ea5cd426',
       name: 'Kyllian',
-      avatar: 'https://peer.decentraland.org/content/contents/QmawhssHwbFsSNfW47bvkUtXq7CzitxQ3idzYoWeZBaYJX'
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreig4ckv7k7ga7niptdw2wsv2u565r6hb5dwzprhavoa3yyoftjrvni'
     },
     {
       address: '0x42ebd2ab698ba74eec1d2a81c376ea2c38c05249',
@@ -56,26 +60,33 @@ export const SABTeam = new Team(
   ]
 )
 
-export const DAOCommitteeTeam = new Team(
+export const DAOCommittee = new Committee(
   'DAO Committee',
-  'Their principal responsibility is to enact binding proposals on-chain like listing Point of Interests, sending Grants, and any other operations involving the DAO\'s smart contracts.',
+  'Their principal responsibility is to enact binding proposals on-chain like listing Point of Interests, sending Grants, and any other operations involving the DAO\'s smart contracts or Treasury.',
+  3,
   [
-    {
-      address: '0xfe91c0c482e09600f2d1dbca10fd705bc6de60bc',
-      name: 'Yemel',
-      avatar: 'https://peer.decentraland.org/content/contents/QmUvDC3wSSTg7Hnej2A6sp3KZPqSULtvkJfvMBJBrLSb8p'
-    },
     {
       address: '0xbef99f5f55cf7cdb3a70998c57061b7e1386a9b0',
       name: 'Kyllian',
-      avatar: 'https://decentraland.org/images/male.png'
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreig4ckv7k7ga7niptdw2wsv2u565r6hb5dwzprhavoa3yyoftjrvni'
+    },
+    {
+      address: '0x88013D7eD946dD8292268a6FF69165a97A89a639',
+      name: 'Tobik',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreif25t6mav5bgkajwr6l6wptzh5lkmonuw7pzricrin6fyhoazfruu'
+    },
+    {
+      address: '0xd6c957f9a6411f35d01baae2658758f277408878',
+      name: 'RizkGh',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreidnd3mgh25roc6g4scwkidkbo5pdr2w3lqpjecrnadx6dns72ojdy'
     }
   ]
 )
 
-export const CurationTeam = new Team(
-  'Wearable Curation Team',
-  'Responsible for reviewing new wearable submissions ensuring they are glitch-free and compliant with the design guidelines. They also rise warnings about IP infringement and violent content.',
+export const CurationCommittee = new Committee(
+  'Wearable Curation Committee',
+  'Responsible for reviewing new wearable and emotes submissions ensuring they are glitch-free and compliant with the design and content guidelines. They also rise warnings about potential IP infringements and rules violations',
+  15,
   [
     {
       address: '0x8938d1f65abe7750b0777206ee26c974a6721194',
@@ -151,6 +162,34 @@ export const CurationTeam = new Team(
       address: '0x967fb0c36e4f5288f30fb05f8b2a4d7b77eaca4b',
       name: 'KJWalker',
       avatar: 'https://peer.decentraland.org/content/contents/bafkreidrquum4l7dymzhodvzctjaj2odhtp6lxjjn6rkoefy5jr6qycsey'
+    }
+  ]
+)
+
+export const RevocationCommittee = new Committee(
+  'Revocation Committee',
+  'Responsible for reviewing cases raised by the community regarding concerning Grant projects. After an assessment, they decide if a Grant has to be revoked or not. They also make recommendations for changes in the Grants Program when identifying improvements.',
+  4,
+  [
+    {
+      address: '0x895Be97bDb9F8a244c472B18EA96DeE39ddf8fe5',
+      name: 'dax',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreih7ul7ovk2s6girhpvqh5nyk32k7pekdwwlqjbl2iigednwxsfafy'
     },
+    {
+      address: '0x05060Fa97e54a812d1E15cEc6c34e79f74eBD0b3',
+      name: 'MetaDoge',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreihwsyuhzujztiq34whajfp4qxk4ava3okzxge2fiviie5vov4tp2u'
+    },
+    {
+      address: '0x9937E3e274be96a624d7Cd00F384EB71c741Dd1b',
+      name: 'Maryana',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreidyp7cslipz3l7wrr2paothwsqreokm5se4vq3qyrey67olltcgi4'
+    },
+    {
+      address: '0x1e105bb213754519903788022b962fe2B9C4B263',
+      name: 'BayBackner',
+      avatar: 'https://peer.decentraland.org/content/contents/bafkreieonpaf25iryrxqk5yivvathsga7n2idbcbpphpsveqiblpcs3jwu'
+    }
   ]
 )

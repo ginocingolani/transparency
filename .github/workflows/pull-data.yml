@@ -28,6 +28,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-proposals.ts
           npx ts-node ./src/upload.ts Proposals ./public/proposals.csv
@@ -37,6 +38,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-votes.ts
           npx ts-node ./src/upload.ts Votes ./public/votes.csv
@@ -64,6 +66,7 @@ jobs:
         run: |
           npx ts-node ./src/export-grants.ts
           npx ts-node ./src/upload.ts Grants ./public/grants.csv
+          npx ts-node ./src/upload.ts Vestings ./public/vestings.csv
 
       - name: Pull Transactions
         env:
@@ -72,6 +75,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-transactions.ts --${{ github.event.inputs.choice }}
           npx ts-node ./src/upload.ts Transactions ./public/transactions.csv
@@ -81,6 +85,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-collections.ts
           npx ts-node ./src/upload.ts Collections ./public/collections.csv
@@ -90,6 +95,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-wearables.ts
           npx ts-node ./src/upload.ts Wearables ./public/wearables.csv
@@ -99,6 +105,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-curations.ts
           npx ts-node ./src/upload.ts Curations ./public/curations.csv
@@ -108,6 +115,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-members.ts
           npx ts-node ./src/upload.ts Members ./public/members.csv
@@ -118,6 +126,7 @@ jobs:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_CLIENT_EMAIL: ${{ secrets.SHEET_CLIENT_EMAIL }}
           SHEET_PRIVATE_KEY: ${{ secrets.SHEET_PRIVATE_KEY }}
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: |
           npx ts-node ./src/export-kpis.ts
           npx ts-node ./src/upload.ts KPIs ./public/kpis.json
@@ -125,10 +134,18 @@ jobs:
       - name: Export API
         env:
           NODE_OPTIONS: "--max-old-space-size=4096"
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: npx ts-node ./src/export-api.ts
 
       - name: Export Report
+        env:
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
         run: npx ts-node ./src/export-report.ts
+
+      - name: Export Budgets
+        env:
+          ROLLBAR_ACCESS_TOKEN: ${{ secrets.ROLLBAR_ACCESS_TOKEN }}
+        run: npx ts-node ./src/export-budgets.ts
 
       - name: Deploy 🚀
         uses: JamesIves/github-pages-deploy-action@v4.2.2

@@ -1,5 +1,12 @@
-import { Collection } from "./interfaces/Collection"
-import { collectionsUrl, errorToRollbar, fetchGraphQLCondition, saveToCSV, saveToJSON, toISOString } from "./utils"
+import { Collection } from './interfaces/Collection'
+import {
+  collectionsUrl,
+  fetchGraphQLCondition,
+  reportToRollbarAndThrow,
+  saveToCSV,
+  saveToJSON,
+  toISOString
+} from './utils'
 
 async function main() {
   // Fetch Collections
@@ -15,7 +22,7 @@ async function main() {
   console.log(collections.length, 'collections found.')
 
   saveToJSON('collections.json', collections)
-  saveToCSV('collections.csv', collections, [
+  await saveToCSV('collections.csv', collections, [
     { id: 'id', title: 'Collection ID' },
     { id: 'name', title: 'Name' },
     { id: 'symbol', title: 'Symbol' },
@@ -26,13 +33,8 @@ async function main() {
     { id: 'createdAt', title: 'Created' },
     { id: 'updatedAt', title: 'Updated' },
     { id: 'reviewedAt', title: 'ReviewedAt' },
-    { id: 'creator', title: 'Creator' },
+    { id: 'creator', title: 'Creator' }
   ])
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
-
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

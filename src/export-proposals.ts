@@ -1,6 +1,14 @@
 import { GovernanceProposal, SnapshotSpace, Symbol } from './interfaces/GovernanceProposal'
 import { Proposal, ProposalParsed, ProposalVotes } from './interfaces/Proposal'
-import { errorToRollbar, fetchGraphQLCondition, fetchURL, governanceUrl, saveToCSV, saveToJSON, snapshotUrl } from './utils'
+import {
+  fetchGraphQLCondition,
+  fetchURL,
+  governanceUrl,
+  reportToRollbarAndThrow,
+  saveToCSV,
+  saveToJSON,
+  snapshotUrl
+} from './utils'
 
 async function main() {
   // Fetch Snapshot Proposals
@@ -21,7 +29,7 @@ async function main() {
   const governanceProposals: GovernanceProposal[] = []
   while (true) {
     const skip = governanceProposals.length
-    const url = `${governanceUrl()}/proposals?limit=100000&offset=${skip}`
+    const url = `${governanceUrl()}/proposals?limit=100&offset=${skip}`
     const json = await fetchURL(url)
 
     if (!json.data.length) break
@@ -48,7 +56,7 @@ async function main() {
       landVP: getVP(pv, Symbol.LAND) + getVP(pv, Symbol.ESTATE),
       namesVP: getVP(pv, Symbol.NAMES),
       delegatedVP: getVP(pv, Symbol.VP_DELEGATED),
-      vesting_address: p.vesting_address,
+      vesting_addresses: p.vesting_addresses,
       enacting_tx: p.enacting_tx
     }
 
@@ -58,7 +66,7 @@ async function main() {
   console.log(data.length, 'proposals found.')
 
   saveToJSON('proposals.json', data)
-  saveToCSV('proposals.csv', data, [
+  await saveToCSV('proposals.csv', data, [
     { id: 'id', title: 'Proposal ID' },
     { id: 'snapshot_id', title: 'Snapshot ID' },
     { id: 'user', title: 'Author' },
@@ -81,9 +89,4 @@ async function main() {
   ])
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
-
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

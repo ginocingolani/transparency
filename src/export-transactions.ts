@@ -1,6 +1,7 @@
 import { TokenPriceAPIData, TokenPriceData } from './interfaces/Transactions/TokenPrices'
-import GRANTS from '../public/grants.json'
-import { Networks, NetworkName, Network } from './entities/Networks'
+import RAW_GRANTS from '../public/grants.json'
+import RAW_BALANCES from '../public/balances.json'
+import { Network, NetworkName, Networks } from './entities/Networks'
 import { Tags, TagType } from './entities/Tags'
 import { Tokens, TokenSymbols } from './entities/Tokens'
 import { Wallets } from './entities/Wallets'
@@ -9,10 +10,25 @@ import { GrantProposal } from './interfaces/Grant'
 import { EventItem } from './interfaces/Transactions/Events'
 import { TransactionItem } from './interfaces/Transactions/Transactions'
 import { TransferItem, TransferType } from './interfaces/Transactions/Transfers'
+import { BalanceParsed } from './export-balances'
 import {
-  COVALENT_API_KEY, DECENTRALAND_DATA_URL, fetchCovalentURL, fetchURL,
-  flattenArray, getLatestBlockByToken, LatestBlocks, printableLatestBlocks,
-  saveToCSV, saveToJSON, setTransactionTag, splitArray, baseCovalentUrl, parseNumber, getTokenPriceInfo, getPreviousDate, errorToRollbar
+  baseCovalentUrl,
+  COVALENT_API_KEY,
+  DECENTRALAND_DATA_URL,
+  fetchCovalentURL,
+  fetchURL,
+  flattenArray,
+  getLatestBlockByToken,
+  getPreviousDate,
+  getTokenPriceInfo,
+  LatestBlocks,
+  parseNumber,
+  printableLatestBlocks,
+  reportToRollbarAndThrow,
+  saveToCSV,
+  saveToJSON,
+  setTransactionTag,
+  splitArray
 } from './utils'
 
 export interface TransactionParsed {
@@ -43,10 +59,11 @@ enum Topic {
 let priceData: TokenPriceData = {}
 
 const WALLET_ADDRESSES = new Set(Wallets.getAddresses())
+const PAGE_SIZE = 1000
 
-const grants: GrantProposal[] = GRANTS
-const GRANTS_VESTING_ADDRESSES = new Set(grants.filter(g => g.status === Status.ENACTED && g.vesting_address).map(g => g.vesting_address.toLowerCase()))
-const GRANTS_ENACTING_TXS = new Set(grants.filter(g => g.status === Status.ENACTED && g.enacting_tx).map(g => g.enacting_tx.toLowerCase()))
+const GRANTS: GrantProposal[] = RAW_GRANTS
+const GRANTS_VESTING_ADDRESSES = new Set(flattenArray(GRANTS.filter(g => g.status === Status.ENACTED && g.vesting_addresses.length > 0).map(g => g.vesting_addresses.map(address => address.toLowerCase()))))
+const GRANTS_ENACTING_TXS = new Set(GRANTS.filter(g => g.status === Status.ENACTED && g.enacting_tx).map(g => g.enacting_tx.toLowerCase()))
 const SAB_ADDRESS = '0x0e659a116e161d8e502f9036babda51334f2667e' // Sec Advisory Board
 const FACILITATOR_ADDRESS = '0x76fb13f00cdbdd5eac8e2664cf14be791af87cb0'
 const OPENSEA_ADDRESSES = new Set([
@@ -57,23 +74,43 @@ const OPENSEA_ADDRESSES = new Set([
   '0x000000004b5ad44f70781462233d177d32d993f1',
   '0x13c10925bf130e4a9631900d89475d2155b5f9c0',
   '0x0000000000e9c0809c14f4dc1e48f97abd9317f6',
+  '0x00000000000001ad428e4906ae43d8f9852d0dd6',
+  '0x00000000000000adc04c56bf30ac9d3c0aaf14dc',
+  '0xef0b56692f78a44cf4034b07f80204757c31bcc9'
 ])
+const RENTAL_ADDRESSES = new Set([
+  '0x3a1469499d0be105d4f77045ca403a5f6dc2f3f5',
+  '0xe90636e24d8faf02aa0e01c26d72dab9629865cb'
+])
+
+const BALANCES = (RAW_BALANCES as BalanceParsed[]).reduce((accum, balance) => {
+  accum[balance.contractAddress] = balance
+  return accum
+}, {} as { [address: string]: BalanceParsed })
 
 async function getTopicTxs(network: Network, startblock: number, topic: Topic) {
   let block = startblock
-  const response = await fetchCovalentURL<{ height: number }>(`${baseCovalentUrl(network)}/block_v2/latest/?key=${COVALENT_API_KEY}`, 0)
+  const MAX_BLOCK_RANGE = 1000000
+  const response = await fetchCovalentURL<{ height: number }>(`${baseCovalentUrl(network)}/block_v2/latest/?key=${COVALENT_API_KEY}`, PAGE_SIZE)
   const latestBlock = response[0].height
   console.log(`Latest ${JSON.stringify(network)} - start block: ${block} - latest block: ${latestBlock}`)
+  const unresolvedEvents: Promise<EventItem[]>[] = []
+  
+  while(block < latestBlock) {
+    const endBlock = block + MAX_BLOCK_RANGE
+    const url = `${baseCovalentUrl(network)}/events/topics/${topic}/?key=${COVALENT_API_KEY}&starting-block=${block}&ending-block=${endBlock > latestBlock ? 'latest' : endBlock}`
+    console.log('fetch market orders', url)
+    unresolvedEvents.push(fetchCovalentURL<EventItem>(url, PAGE_SIZE))
+    block = endBlock + 1
+  }
 
-  const url = `${baseCovalentUrl(network)}/events/topics/${topic}/?key=${COVALENT_API_KEY}&starting-block=${block}&ending-block=latest`
-  console.log('fetch', url)
-  const events = await fetchCovalentURL<EventItem>(url)
+  const events = flattenArray(await Promise.all(unresolvedEvents))
   return events.map(e => e.tx_hash)
 }
 
-async function getTransactions(name: string, tokenAddress: string, network: Network, address: string, startBlock?: number) {
+async function getTransactions(name: string, tokenAddress: string, network: Network, address: string, fullFetch: boolean, startBlock?: number) {
   const url = `${baseCovalentUrl(network)}/address/${address}/transfers_v2/?key=${COVALENT_API_KEY}&contract-address=${tokenAddress}${startBlock >= 0 ? `&starting-block=${startBlock + 1}` : ''}`
-  const items = await fetchCovalentURL<TransferItem>(url, 100000)
+  const items = await fetchCovalentURL<TransferItem>(url, 100000) // page size has to be high enough to get all the transactions in a reasonable time
 
   const txs = items.filter(t => t.successful)
 
@@ -87,8 +124,9 @@ async function getTransactions(name: string, tokenAddress: string, network: Netw
       ) ? TransferType.INTERNAL : txTransfer.transfer_type
 
       const date = tx.block_signed_at.split('T')[0]
-      const usdPrice = priceData[txTransfer.contract_address.toLowerCase()][date]
-      const amount = parseNumber(Number(txTransfer.delta),  txTransfer.contract_decimals)
+      const contractAddress = txTransfer.contract_address.toLowerCase()
+      const usdPrice = fullFetch ? priceData[contractAddress][date] : BALANCES[contractAddress]?.rate
+      const amount = parseNumber(Number(txTransfer.delta), BALANCES[contractAddress]?.decimals || txTransfer.contract_decimals)
 
       const usdValue = usdPrice ? usdPrice * amount : (txTransfer.delta_quote || 0)
 
@@ -130,7 +168,7 @@ async function findSecondarySalesTag(txs: TransactionParsed[], chunk: number) {
 
     do {
       try {
-        const data = await fetchCovalentURL<TransactionItem>(`${baseCovalentUrl(Networks.get(tx.network))}/transaction_v2/${tx.hash}/?key=${COVALENT_API_KEY}`, 0)
+        const data = await fetchCovalentURL<TransactionItem>(`${baseCovalentUrl(Networks.get(tx.network))}/transaction_v2/${tx.hash}/?key=${COVALENT_API_KEY}`, PAGE_SIZE)
         fetched = true
 
         const log = data[0].log_events.find(log => Tags.isItemContract(log.sender_address))
@@ -140,22 +178,22 @@ async function findSecondarySalesTag(txs: TransactionParsed[], chunk: number) {
         }
 
       } catch (error) {
-        console.log("retrying...")
+        console.log('retrying...')
         maxRetries--
       }
     } while (!fetched && maxRetries > 0)
 
     if (maxRetries <= 0) {
-      console.log("Failed to fetch secondary sale tag, tx:", tx.hash)
+      console.log('Failed to fetch secondary sale tag, tx:', tx.hash)
     }
   }
 
   console.log(`Secondary sales tagged: ${txs.length} - Chunk = ${chunk}`)
 }
 
-function saveTransactions(txs: TransactionParsed[], tagged = false) {
+async function saveTransactions(txs: TransactionParsed[], tagged = false) {
   saveToJSON('transactions.json', txs)
-  saveToCSV('transactions.csv', txs, [
+  await saveToCSV('transactions.csv', txs, [
     { id: 'date', title: 'Date' },
     { id: 'wallet', title: 'Wallet' },
     { id: 'network', title: 'Network' },
@@ -180,13 +218,13 @@ async function tagging(txs: TransactionParsed[]) {
   const polygonNetwork = Networks.getPolygon()
 
   const ethTxs = txs.filter(t => t.network === ethNetwork.name)
-  const ethStartblock = ethTxs[ethTxs.length - 1].block
-  const marketOrdersTxs = new Set(await getTopicTxs(ethNetwork, ethStartblock, Topic.ETH_ORDER_TOPIC))
+  const ethStartblock = ethTxs[ethTxs.length - 1]?.block
+  const marketOrdersTxs = new Set(ethStartblock ? await getTopicTxs(ethNetwork, ethStartblock, Topic.ETH_ORDER_TOPIC) : [])
   console.log('Ethereum Orders:', marketOrdersTxs.size)
 
   const maticTxs = txs.filter(t => t.network === polygonNetwork.name)
-  const maticStartblock = maticTxs[maticTxs.length - 1].block
-  const maticOrdersTxs = new Set(await getTopicTxs(polygonNetwork, maticStartblock, Topic.MATIC_ORDER_TOPIC))
+  const maticStartblock = maticTxs[maticTxs.length - 1]?.block
+  const maticOrdersTxs = new Set(maticStartblock ? await getTopicTxs(polygonNetwork, maticStartblock, Topic.MATIC_ORDER_TOPIC) : [])
   console.log('Matic Orders:', maticOrdersTxs.size)
 
   const tagger = async (transactions: TransactionParsed[], chunk: number) => {
@@ -212,7 +250,7 @@ async function tagging(txs: TransactionParsed[]) {
         tx.tag = TagType.GRANT
         continue
       }
-      
+
       if (tx.type === TransferType.IN && GRANTS_VESTING_ADDRESSES.has(tx.from)) {
         tx.tag = TagType.GRANT_REFUND
         continue
@@ -223,13 +261,25 @@ async function tagging(txs: TransactionParsed[]) {
         continue
       }
 
-      if (
-        tx.type === TransferType.IN && (
-          OPENSEA_ADDRESSES.has(tx.from) ||
-          OPENSEA_ADDRESSES.has(tx.txFrom) ||
-          OPENSEA_ADDRESSES.has(tx.interactedWith)
-        )) {
+      const isOpenSeaTransaction = tx.type === TransferType.IN && (
+        OPENSEA_ADDRESSES.has(tx.from) ||
+        OPENSEA_ADDRESSES.has(tx.txFrom) ||
+        OPENSEA_ADDRESSES.has(tx.interactedWith)
+      )
+      
+      if (isOpenSeaTransaction) {
         tx.tag = TagType.OPENSEA
+        continue
+      }
+
+      const isRentalFeeTransaction = tx.type === TransferType.IN && (
+        RENTAL_ADDRESSES.has(tx.from) ||
+        RENTAL_ADDRESSES.has(tx.txFrom) ||
+        RENTAL_ADDRESSES.has(tx.interactedWith)
+      )
+
+      if (isRentalFeeTransaction) {
+        tx.tag = TagType.RENTAL_FEE
         continue
       }
 
@@ -308,23 +358,22 @@ async function main() {
     lastTransactions = await fetchURL(`${DECENTRALAND_DATA_URL}/transactions.json`)
     latestBlocks = await getLatestBlockByToken(lastTransactions)
     console.log('Latest Blocks:', printableLatestBlocks(latestBlocks))
-  }
-  else {
+  } else {
     console.log('\n\n###################### WARNING: fetching all transactions ######################\n\n')
+    priceData = await getTokenPrices(!fullFetch ? latestBlocks : undefined)
+    console.log('Fetched price data...')
   }
-
-  priceData = await getTokenPrices(!fullFetch ? latestBlocks : undefined)
-  console.log('Fetched price data...')
 
   for (const wallet of Wallets.getAll()) {
     const { name, address, network } = wallet
     const tokenAddresses = Tokens.getAddresses(network.name)
 
     for (const tokenAddress of tokenAddresses) {
-      unresolvedTransactions.push(getTransactions(name, tokenAddress, network, address, latestBlocks[network.name][tokenAddress]?.block))
+      unresolvedTransactions.push(getTransactions(name, tokenAddress, network, address, fullFetch, latestBlocks[network.name][tokenAddress]?.block))
     }
   }
 
+  console.log('Fetching transactions...')
   let transactions = flattenArray(await Promise.all(unresolvedTransactions))
 
   transactions = transactions.sort((a, b) => a.date > b.date ? -1 : a.date === a.date ? 0 : 1)
@@ -336,11 +385,7 @@ async function main() {
   transactions = !fullFetch ? [...taggedTxns, ...lastTransactions] : taggedTxns
 
   console.log('Saving with tags...')
-  saveTransactions(transactions, true)
+  await saveTransactions(transactions, true)
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

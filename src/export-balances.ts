@@ -5,12 +5,12 @@ import { Contract } from './interfaces/Balance'
 import {
   baseCovalentUrl,
   COVALENT_API_KEY,
-  errorToRollbar,
   fetchCovalentURL,
   flattenArray,
   getPreviousDate,
   getTokenPriceInfo,
   parseNumber,
+  reportToRollbarAndThrow,
   saveToCSV,
   saveToJSON
 } from './utils'
@@ -29,6 +29,7 @@ export type BalanceParsed = {
   network: `${NetworkName}`
   address: string
   contractAddress: string
+  decimals: number
 }
 
 type PricesMap = Record<string, number>
@@ -47,7 +48,7 @@ function filterContractByToken(contract: Contract, wallet: Wallet) {
 
 function getBalanceParsed(contract: Contract, walletName: string, walletAddress: string, network: Network, prices: PricesMap): BalanceParsed {
   const amount = parseNumber(Number(contract.balance), contract.contract_decimals)
-  const rate = prices[contract.contract_address.toLowerCase()] || 0
+  const rate = contract.quote_rate || prices[contract.contract_address.toLowerCase()] || 0
   return {
     timestamp: contract.last_transferred_at,
     name: walletName,
@@ -57,7 +58,8 @@ function getBalanceParsed(contract: Contract, walletName: string, walletAddress:
     symbol: contract.contract_ticker_symbol,
     network: network.name,
     address: walletAddress,
-    contractAddress: contract.contract_address
+    contractAddress: contract.contract_address,
+    decimals: contract.contract_decimals
   }
 }
 
@@ -69,9 +71,11 @@ async function getBalance(wallet: Wallet) {
   try {
     const contracts = await fetchCovalentURL<Contract>(`${baseCovalentUrl(network)}/address/${address}/balances_v2/?quote-currency=USD&format=JSON&nft=false&no-nft-fetch=true&key=${COVALENT_API_KEY}`, 0)
     const contractsFiltered = contracts.filter(contract => filterContractByToken(contract, wallet))
-    
-    for(const contract of contractsFiltered) {
-      unresolvedPrices.push(getTokenPriceInfo(contract.contract_address, network, aWeekAgo, today))
+
+    for (const contract of contractsFiltered) {
+      if(!contract.quote_rate || contract.quote_rate === 0) {
+        unresolvedPrices.push(getTokenPriceInfo(contract.contract_address, network, aWeekAgo, today))
+      }
     }
 
     const rawPrices = flattenArray(await Promise.all(unresolvedPrices))
@@ -101,7 +105,7 @@ async function main() {
   console.log(balances.length, 'balances found.')
 
   saveToJSON('balances.json', balances)
-  saveToCSV('balances.csv', balances, [
+  await saveToCSV('balances.csv', balances, [
     { id: 'timestamp', title: 'Timestamp' },
     { id: 'name', title: 'Wallet' },
     { id: 'amount', title: 'Balance' },
@@ -114,8 +118,4 @@ async function main() {
   ])
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

@@ -1,5 +1,12 @@
 import { Curation } from './interfaces/Curation'
-import { collectionsUrl, errorToRollbar, fetchGraphQLCondition, saveToCSV, saveToJSON, toISOString } from './utils'
+import {
+  collectionsUrl,
+  fetchGraphQLCondition,
+  reportToRollbarAndThrow,
+  saveToCSV,
+  saveToJSON,
+  toISOString
+} from './utils'
 
 interface CurationParsed {
   timestamp: string,
@@ -37,20 +44,15 @@ async function main() {
   console.log(curationsParsed.length, 'curations found.')
 
   saveToJSON('curations.json', curationsParsed)
-  saveToCSV('curations.csv', curationsParsed, [
+  await saveToCSV('curations.csv', curationsParsed, [
     { id: 'timestamp', title: 'Date' },
     { id: 'txHash', title: 'Tx Hash' },
     { id: 'curator', title: 'Curator' },
     { id: 'collectionId', title: 'Collection ID' },
     { id: 'collectionName', title: 'Collection Name' },
     { id: 'collectionItems', title: 'Collection Items' },
-    { id: 'collectionApproved', title: 'Collection Approved' },
+    { id: 'collectionApproved', title: 'Collection Approved' }
   ])
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
-
+main().catch((error) => reportToRollbarAndThrow(__filename, error))
