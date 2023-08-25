@@ -1,7 +1,7 @@
 import { parse } from 'csv-parse/sync'
 import { readFileSync } from 'fs'
 import { GoogleSpreadsheet } from 'google-spreadsheet'
-import { errorToRollbar, parseKPIs } from './utils'
+import { parseKPIs, reportToRollbarAndThrow } from './utils'
 
 require('dotenv').config()
 
@@ -18,7 +18,10 @@ async function main() {
     const append = process.argv[4] == '--append'
 
     await doc.loadInfo()
-    const sheet = doc.sheetsByTitle[title]
+    let sheet = doc.sheetsByTitle[title]
+    if(!sheet) {
+      sheet = await doc.addSheet({ title })
+    }
     const rows = title === 'KPIs' ? parseKPIs(require('../public/kpis.json')) : parse(readFileSync(path))
 
     if (!append) {
@@ -44,10 +47,4 @@ async function main() {
   }
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
-
-
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

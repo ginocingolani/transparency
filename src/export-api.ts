@@ -2,14 +2,14 @@ import BALANCES from '../public/balances.json'
 import GRANTS from '../public/grants.json'
 import TRANSACTIONS from '../public/transactions.json'
 import { TagCategoryType, Tags } from './entities/Tags'
-import { CurationTeam, DAOCommitteeTeam, SABTeam } from './entities/Teams'
+import { CurationCommittee, DAOCommittee, RevocationCommittee, SABCommittee } from './entities/Teams'
 import { TransactionParsed } from './export-transactions'
 import { BalanceDetails } from './interfaces/Api'
 import { Status } from './interfaces/GovernanceProposal'
 import { GrantProposal } from './interfaces/Grant'
 import { TransactionDetails } from './interfaces/Transactions/Transactions'
 import { TransferType } from './interfaces/Transactions/Transfers'
-import { dayToMillisec, errorToRollbar, getTransactionsPerTag, saveToJSON } from './utils'
+import { dayToMillisec, getTransactionsPerTag, reportToRollbarAndThrow, saveToJSON } from './utils'
 
 function getTxsDetails(txs: Record<string, TransactionDetails>): BalanceDetails[] {
   const groupedTxs: Record<string, BalanceDetails> = {}
@@ -23,8 +23,7 @@ function getTxsDetails(txs: Record<string, TransactionDetails>): BalanceDetails[
 
     if (!groupedTxs[tagCategory.name]) {
       groupedTxs[tagCategory.name] = { ...tagCategory, value: values.total.toNumber() }
-    }
-    else {
+    } else {
       groupedTxs[tagCategory.name].value += values.total.toNumber()
     }
   }
@@ -88,18 +87,15 @@ async function main() {
     'funding': {
       'total': totalFunding
     },
-    'teams': [
-      SABTeam.toJson(),
-      DAOCommitteeTeam.toJson(),
-      CurationTeam.toJson(),
+    'committees': [
+      SABCommittee.toJson(),
+      DAOCommittee.toJson(),
+      CurationCommittee.toJson(),
+      RevocationCommittee.toJson(),
     ]
   }
 
   saveToJSON('api.json', data)
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
+main().catch((error) => reportToRollbarAndThrow(__filename, error))

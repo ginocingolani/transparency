@@ -1,6 +1,7 @@
 import { rollbar } from './rollbar'
 import Web3 from 'web3'
-import { AbiItem } from 'web3-utils'
+import type { AbiItem } from 'web3-utils'
+import type { Contract } from 'web3-eth-contract'
 
 import PROPOSALS from '../public/proposals.json'
 import VESTING_ABI from './abi/Ethereum/vesting.json'
@@ -8,9 +9,32 @@ import VESTING_V2_ABI from './abi/Ethereum/vesting_v2.json'
 import { Networks } from './entities/Networks'
 import { Tokens } from './entities/Tokens'
 import { GovernanceProposalType, Status } from './interfaces/GovernanceProposal'
-import { GrantProposal, GrantUpdate, GrantUpdateResponse, OneTimePaymentInfo, Updates, UpdateStatus, VestingInfo } from './interfaces/Grant'
+import {
+  GrantProposal,
+  GrantUpdate,
+  GrantUpdateResponse,
+  OneTimePaymentInfo,
+  Updates,
+  UpdateStatus,
+  VestingInfo,
+  VestingStatus
+} from './interfaces/Grant'
 import { Decoded, DecodedName, ParamName, TransactionItem } from './interfaces/Transactions/Transactions'
-import { baseCovalentUrl, COVALENT_API_KEY, errorToRollbar, fetchCovalentURL, fetchURL, INFURA_URL, isSameAddress, parseNumber, saveToCSV, saveToJSON, toISOString } from './utils'
+import {
+  baseCovalentUrl,
+  COVALENT_API_KEY,
+  fetchCovalentURL,
+  fetchURL,
+  flattenArray,
+  getMonthsBetweenDates,
+  INFURA_URL,
+  isSameAddress,
+  parseNumber,
+  reportToRollbarAndThrow,
+  saveToCSV,
+  saveToJSON,
+  toISOString
+} from './utils'
 
 const web3 = new Web3(INFURA_URL)
 
@@ -21,6 +45,20 @@ function getTxAmount(decodedLogEvent: Decoded, decimals: number) {
     }
   }
   return null
+}
+
+function getInitialVestingStatus(startAt: string, finishAt: string) {
+  const now = new Date()
+
+  if (now < new Date(startAt)) {
+    return VestingStatus.Pending
+  }
+
+  if (now < new Date(finishAt)) {
+    return VestingStatus.InProgress
+  }
+
+  return VestingStatus.Finished
 }
 
 async function _getVestingContractDataV1(vestingAddress: string): Promise<VestingInfo> {
@@ -43,18 +81,49 @@ async function _getVestingContractDataV1(vestingAddress: string): Promise<Vestin
 
   const tokenContract = new web3.eth.Contract(token.abi, contract_token_address)
   const raw_token_contract_balance = await tokenContract.methods.balanceOf(vestingAddress).call()
-  const vesting_token_contract_balance = parseNumber(raw_token_contract_balance, decimals)
-  const vesting_total_amount = vesting_token_contract_balance + vesting_released
+  const vesting_contract_token_balance = parseNumber(raw_token_contract_balance, decimals)
+  const vesting_total_amount = vesting_contract_token_balance + vesting_released
+
+  let vesting_status = getInitialVestingStatus(vesting_start_at, vesting_finish_at)
+
+  const isRevoked = await vestingContract.methods.revoked().call()
+
+  if (isRevoked) {
+    vesting_status = VestingStatus.Revoked
+  }
 
   return {
     token: token.symbol,
+    vesting_address: vestingAddress.toLowerCase(),
     vesting_released,
     vesting_releasable,
     vesting_start_at,
     vesting_finish_at,
-    vesting_token_contract_balance,
-    vesting_total_amount
+    vesting_contract_token_balance,
+    vesting_total_amount,
+    vesting_status,
+    duration_in_months: getMonthsBetweenDates(new Date(vesting_start_at), new Date(vesting_finish_at))
   }
+}
+
+async function _getVestingV2Dates(vestingContract: Contract) {
+  const contractStart: number = await vestingContract.methods.getStart().call()
+  const contractDuration = await vestingContract.methods.getPeriod().call()
+  const vesting_start_at = toISOString(contractStart)
+  let contractEndsTimestamp = 0
+  let vesting_finish_at = ''
+
+  if (await vestingContract.methods.getIsLinear().call()) {
+    contractEndsTimestamp = Number(contractStart) + Number(contractDuration)
+    vesting_finish_at = toISOString(contractEndsTimestamp)
+  }
+  else {
+    const periods = (await vestingContract.methods.getVestedPerPeriod().call()).length || 0
+    contractEndsTimestamp = Number(contractStart) + Number(contractDuration) * periods
+    vesting_finish_at = toISOString(contractEndsTimestamp)
+  }
+
+  return { vesting_start_at, vesting_finish_at }
 }
 
 async function _getVestingContractDataV2(vestingAddress: string): Promise<VestingInfo> {
@@ -69,36 +138,48 @@ async function _getVestingContractDataV2(vestingAddress: string): Promise<Vestin
   const raw_vesting_releasable = await vestingContract.methods.getReleasable().call()
   const vesting_releasable = parseNumber(raw_vesting_releasable, decimals)
 
-  const contractStart: number = await vestingContract.methods.getStart().call()
-  const contractDuration: number = await vestingContract.methods.getPeriod().call()
-  const contractEndsTimestamp = Number(contractStart) + Number(contractDuration)
-  const vesting_start_at = toISOString(contractStart)
-  const vesting_finish_at = toISOString(contractEndsTimestamp)
+  const { vesting_start_at, vesting_finish_at } = await _getVestingV2Dates(vestingContract)
 
   const tokenContract = new web3.eth.Contract(token.abi, contract_token_address)
   const raw_token_contract_balance = await tokenContract.methods.balanceOf(vestingAddress).call()
-  const vesting_token_contract_balance = parseNumber(raw_token_contract_balance, decimals)
-  const vesting_total_amount = vesting_token_contract_balance + vesting_released
+  const vesting_contract_token_balance = parseNumber(raw_token_contract_balance, decimals)
+  const vesting_total_amount = vesting_contract_token_balance + vesting_released
+
+  let vesting_status = getInitialVestingStatus(vesting_start_at, vesting_finish_at)
+
+  const isRevoked = await vestingContract.methods.getIsRevoked().call()
+
+  if (isRevoked) {
+    vesting_status = VestingStatus.Revoked
+  } else {
+    const isPaused = await vestingContract.methods.paused().call()
+    if (isPaused) {
+      vesting_status = VestingStatus.Paused
+    }
+  }
 
   return {
     token: token.symbol,
+    vesting_address: vestingAddress.toLowerCase(),
     vesting_released,
     vesting_releasable,
     vesting_start_at,
     vesting_finish_at,
-    vesting_token_contract_balance,
-    vesting_total_amount
+    vesting_contract_token_balance,
+    vesting_total_amount,
+    vesting_status,
+    duration_in_months: getMonthsBetweenDates(new Date(vesting_start_at), new Date(vesting_finish_at))
   }
 }
 
-async function getVestingContractData(proposalId: string, vestingAddress: string): Promise<VestingInfo> {
+async function getVestingContractData(proposalId: string, vestingAddresses: string[]): Promise<VestingInfo[]> {
   try {
-    return await _getVestingContractDataV1(vestingAddress)
+    return await Promise.all(vestingAddresses.map((address) => _getVestingContractDataV1(address)))
   } catch (errorV1) {
     try {
-      return await _getVestingContractDataV2(vestingAddress)
+      return await Promise.all(vestingAddresses.map((address) => _getVestingContractDataV2(address)))
     } catch (errorV2) {
-      rollbar.log(`Error trying to get vesting data for proposal ${proposalId}, vesting address ${vestingAddress}`, `Error V1: ${errorV1}, Error V2: ${errorV2}`)
+      rollbar.log(`Error trying to get vesting data`, {proposalId, vestingAddresses, errorV1, errorV2})
     }
   }
 }
@@ -142,7 +223,7 @@ function parseUpdatesInfo(updatesResponseData: GrantUpdateResponse['data']): Upd
 
   const lastUpdate = updatesResponseData.publicUpdates.filter(
     update => update.status === UpdateStatus.Done || update.status === UpdateStatus.Late
-    ).sort((a, b) => new Date(b.completion_date).getTime() - new Date(a.completion_date).getTime())[0]
+  ).sort((a, b) => new Date(b.completion_date).getTime() - new Date(a.completion_date).getTime())[0]
   return {
     done_updates: getUpdatesAmountByStatus(updatesResponseData.publicUpdates, UpdateStatus.Done),
     late_updates: getUpdatesAmountByStatus(updatesResponseData.publicUpdates, UpdateStatus.Late),
@@ -151,23 +232,25 @@ function parseUpdatesInfo(updatesResponseData: GrantUpdateResponse['data']): Upd
     health: lastUpdate?.health,
     last_update: lastUpdate?.completion_date,
     next_update: updatesResponseData.nextUpdate?.due_date,
-    pending_updates: updatesResponseData.pendingUpdates.length,
+    pending_updates: updatesResponseData.pendingUpdates.length
   }
 }
 
 async function setEnactingData(proposal: GrantProposal): Promise<void> {
 
-  const assignProposalData = (data: Updates | VestingInfo | OneTimePaymentInfo) => { Object.assign(proposal, data) }
+  const assignProposalData = (data: Updates | OneTimePaymentInfo) => {
+    Object.assign(proposal, data)
+  }
 
-  if (proposal.vesting_address) {
-    const vestingContractData = await getVestingContractData(proposal.id, proposal.vesting_address.toLowerCase())
-    assignProposalData(vestingContractData)
+  if (proposal.vesting_addresses.length > 0) {
+    const vestingContractData = await getVestingContractData(proposal.id, proposal.vesting_addresses)
+    proposal.vesting = vestingContractData
   }
   if (proposal.enacting_tx) {
     const enactingTxData = await getEnactingTxData(proposal.id, proposal.enacting_tx.toLowerCase(), proposal.beneficiary)
     assignProposalData(enactingTxData)
   }
-  if (proposal.vesting_address === null && proposal.enacting_tx === null) {
+  if (proposal.vesting_addresses.length === 0 && proposal.enacting_tx === null) {
     console.log(`A proposal without vesting address and enacting tx has been found. Id ${proposal.id}`)
   }
 
@@ -183,7 +266,7 @@ async function setEnactingData(proposal: GrantProposal): Promise<void> {
 
 async function main() {
   // Get Governance dApp Proposals
-  const proposals: GrantProposal[] = PROPOSALS.filter(p => p.type === GovernanceProposalType.GRANT)
+  const proposals = (PROPOSALS as GrantProposal[]).filter(p => p.type === GovernanceProposalType.GRANT)
   const unresolvedEnactingData: Promise<void>[] = []
 
   for (const proposal of proposals) {
@@ -220,14 +303,6 @@ async function main() {
     { id: 'beneficiary', title: 'Beneficiary' },
     { id: 'token', title: 'Token' },
 
-    { id: 'vesting_address', title: 'Vesting Contract' },
-    { id: 'vesting_released', title: 'Vesting Released Amount' },
-    { id: 'vesting_releasable', title: 'Vesting Releasable Amount' },
-    { id: 'vesting_token_contract_balance', title: 'Vesting Token Contract Balance' },
-    { id: 'vesting_total_amount', title: 'Vesting Total Amount' },
-    { id: 'vesting_start_at', title: 'Vesting Start At' },
-    { id: 'vesting_finish_at', title: 'Vesting Finish At' },
-
     { id: `enacting_tx`, title: 'Enacting Transaction' },
     { id: 'tx_date', title: 'Transaction Date' },
     { id: 'tx_amount', title: 'Transaction Amount' },
@@ -239,13 +314,24 @@ async function main() {
     { id: 'health', title: 'Project Health' },
     { id: 'last_update', title: 'Last Update' },
     { id: 'next_update', title: 'Next Update' },
-    { id: 'pending_updates', title: 'Pending Updates' },
+    { id: 'pending_updates', title: 'Pending Updates' }
   ])
+
+  const vestings = flattenArray(proposals.map(({ vesting, id }) => vesting?.map((vestingData) => ({ proposal_id: id, ...vestingData })))).filter(v => v)
+  saveToJSON('vestings.json', vestings)
+  await saveToCSV('vestings.csv', vestings, [
+    { id: 'proposal_id', title: 'Proposal ID' },
+    { id: 'vesting_status', title: 'Vesting Status' },
+    { id: 'vesting_address', title: 'Vesting Contract' },
+    { id: 'vesting_released', title: 'Vesting Released Amount' },
+    { id: 'vesting_releasable', title: 'Vesting Releasable Amount' },
+    { id: 'vesting_contract_token_balance', title: 'Vesting Token Contract Balance' },
+    { id: 'vesting_total_amount', title: 'Vesting Total Amount' },
+    { id: 'vesting_start_at', title: 'Vesting Start At' },
+    { id: 'vesting_finish_at', title: 'Vesting Finish At' },
+    { id: 'duration_in_months', title: 'Duration (Months)' },
+  ])
+
 }
 
-try {
-  main()
-} catch (error) {
-  errorToRollbar(__filename, error)
-}
-
+main().catch((error) => reportToRollbarAndThrow(__filename, error))
